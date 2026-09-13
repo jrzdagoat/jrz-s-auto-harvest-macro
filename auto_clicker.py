@@ -13,6 +13,8 @@ Build to a Windows .exe with PyInstaller (see .github/workflows/build.yml):
     pyinstaller --onefile --windowed --name AutoClicker auto_clicker.py
 """
 
+import os
+import sys
 import threading
 import time
 import tkinter as tk
@@ -20,15 +22,21 @@ from tkinter import ttk
 
 from pynput import mouse, keyboard
 
+APP_TITLE = "Jrz's Auto Havest Drug Macro"
+_BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+ASSETS_DIR = os.path.join(_BASE_DIR, "assets")
+ICON_ICO = os.path.join(ASSETS_DIR, "icon.ico")
+ICON_PNG = os.path.join(ASSETS_DIR, "icon.png")
+
 # ---------------------------------------------------------------------------
-# Colors / style - light theme, blue accents
+# Colors / style - flat black & white theme
 # ---------------------------------------------------------------------------
-BG = "#f3f4f6"
+BG = "#ffffff"
 PANEL_BG = "#ffffff"
-BLUE = "#1a73e8"
-TEXT = "#1f2430"
-MUTED = "#6b7280"
-BORDER = "#d7dae0"
+BLUE = "#000000"       # accent, kept as var name for minimal diff, now black
+TEXT = "#000000"
+MUTED = "#5a5a5a"
+BORDER = "#000000"
 
 mouse_ctl = mouse.Controller()
 kb_ctl = keyboard.Controller()
@@ -39,10 +47,11 @@ MOUSE_BUTTONS = {"Left": mouse.Button.left, "Right": mouse.Button.right, "Middle
 class AutoClicker(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Auto Clicker")
+        self.title(APP_TITLE)
         self.configure(bg=BG)
         self.resizable(False, False)
         self.geometry("460x430")
+        self._set_icon()
 
         # ---- state -------------------------------------------------------
         self.running = False
@@ -75,21 +84,38 @@ class AutoClicker(tk.Tk):
         self._start_hotkey_listener()
 
     # -----------------------------------------------------------------
+    # Icon
+    # -----------------------------------------------------------------
+    def _set_icon(self):
+        try:
+            if os.name == "nt" and os.path.exists(ICON_ICO):
+                self.iconbitmap(ICON_ICO)
+            elif os.path.exists(ICON_PNG):
+                self._icon_img = tk.PhotoImage(file=ICON_PNG)
+                self.iconphoto(True, self._icon_img)
+        except Exception:
+            pass  # missing/unsupported icon file shouldn't block the app
+
+    # -----------------------------------------------------------------
     # UI construction
     # -----------------------------------------------------------------
     def _section(self, parent, title):
-        frame = tk.LabelFrame(
-            parent, text=title, bg=PANEL_BG, fg=BLUE,
-            font=("Segoe UI", 9, "bold"), bd=1, relief="solid",
-            labelanchor="nw", padx=10, pady=8
-        )
-        frame.configure(highlightbackground=BORDER)
+        # Flat, borderless section: a small bold caption + a thin rule,
+        # instead of a boxed LabelFrame - simpler, monochrome look.
+        frame = tk.Frame(parent, bg=PANEL_BG)
+        tk.Label(
+            frame, text=title.upper(), bg=PANEL_BG, fg=TEXT,
+            font=("Segoe UI", 8, "bold")
+        ).pack(anchor="w")
+        tk.Frame(frame, bg=BORDER, height=1).pack(fill="x", pady=(2, 8))
         return frame
 
     def _spin(self, parent, var, width=5):
         return tk.Spinbox(
             parent, from_=0, to=999, textvariable=var, width=width,
-            justify="center", relief="solid", bd=1
+            justify="center", relief="solid", bd=1,
+            bg=PANEL_BG, fg=TEXT, buttonbackground=PANEL_BG,
+            highlightbackground=BORDER, highlightthickness=1
         )
 
     def _build_ui(self):
@@ -141,7 +167,9 @@ class AutoClicker(tk.Tk):
         tk.Radiobutton(rtop, text="Repeat", variable=self.repeat_mode, value="times",
                         bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG).pack(side="left")
         tk.Spinbox(rtop, from_=1, to=99999, textvariable=self.repeat_times, width=6,
-                    justify="center", relief="solid", bd=1).pack(side="left", padx=6)
+                    justify="center", relief="solid", bd=1,
+                    bg=PANEL_BG, fg=TEXT, buttonbackground=PANEL_BG,
+                    highlightbackground=BORDER, highlightthickness=1).pack(side="left", padx=6)
         tk.Label(rtop, text="times", bg=PANEL_BG, fg=TEXT).pack(side="left")
 
         tk.Radiobutton(repeat, text="Repeat until stopped", variable=self.repeat_mode,
@@ -152,8 +180,8 @@ class AutoClicker(tk.Tk):
         hk = self._section(self, "Hotkey")
         hk.pack(fill="x", padx=12, pady=6)
         tk.Label(hk, text="Start / Stop hotkey:", bg=PANEL_BG, fg=TEXT).pack(side="left")
-        tk.Label(hk, text="F6", bg=PANEL_BG, fg=BLUE, font=("Segoe UI", 9, "bold")).pack(side="left", padx=6)
-        tk.Label(hk, text="(works even when this window isn't focused)",
+        tk.Label(hk, text="F6", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(side="left", padx=6)
+        tk.Label(hk, text="(works even when unfocused)",
                  bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 8)).pack(side="left")
 
         # ---- Buttons -------------------------------------------------
@@ -161,14 +189,15 @@ class AutoClicker(tk.Tk):
         btns.pack(fill="x", padx=12, pady=(10, 4))
 
         self.start_btn = tk.Button(
-            btns, text="Start (F6)", command=self.start, bg=PANEL_BG, fg=TEXT,
-            relief="solid", bd=1, height=2, activebackground="#eaf1fd"
+            btns, text="Start (F6)", command=self.start, bg="#000000", fg="#ffffff",
+            relief="flat", bd=0, height=2, activebackground="#2a2a2a", activeforeground="#ffffff"
         )
         self.start_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
 
         self.stop_btn = tk.Button(
             btns, text="Stop (F6)", command=self.stop, bg=PANEL_BG, fg=MUTED,
-            relief="solid", bd=1, height=2, state="disabled"
+            relief="solid", bd=1, height=2, state="disabled",
+            highlightbackground=BORDER
         )
         self.stop_btn.pack(side="left", expand=True, fill="x", padx=(4, 0))
 
@@ -266,7 +295,7 @@ class AutoClicker(tk.Tk):
 
         self.running = True
         self.stop_event.clear()
-        self.start_btn.config(state="disabled")
+        self.start_btn.config(state="disabled", bg="#555555")
         self.stop_btn.config(state="normal", fg=TEXT)
         self.status_var.set("Running…")
 
@@ -278,7 +307,7 @@ class AutoClicker(tk.Tk):
             return
         self.running = False
         self.stop_event.set()
-        self.start_btn.config(state="normal")
+        self.start_btn.config(state="normal", bg="#000000")
         self.stop_btn.config(state="disabled", fg=MUTED)
         self.status_var.set("Stopped")
 
