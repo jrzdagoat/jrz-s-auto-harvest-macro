@@ -85,8 +85,14 @@ class AutoClicker(tk.Tk):
         self.stop_event = threading.Event()
         self.worker = None
 
+        self.action_type = tk.StringVar(value="mouse")  # "mouse" or "key"
         self.mouse_button = tk.StringVar(value="Left")
         self.click_type = tk.StringVar(value="Single")
+
+        self._bound_key_obj = None
+        self._bound_key_char = "f"
+        self.bound_key_display = tk.StringVar(value="F")
+        self._listening_for_key = False
 
         self.repeat_mode = tk.StringVar(value="until_stopped")  # "times" or "until_stopped"
         self.repeat_times = tk.IntVar(value=1)
@@ -180,17 +186,17 @@ class AutoClicker(tk.Tk):
         options.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         self._heading(options, "Click options")
 
-        row1 = tk.Frame(options, bg=PANEL_BG)
-        row1.pack(fill="x", padx=12, pady=2)
-        tk.Label(row1, text="Mouse button:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
-        ttk.Combobox(row1, textvariable=self.mouse_button, values=list(MOUSE_BUTTONS),
-                     state="readonly", width=9).pack(side="left")
+        toggle_row = tk.Frame(options, bg=PANEL_BG)
+        toggle_row.pack(fill="x", padx=12, pady=(0, 6))
+        tk.Radiobutton(toggle_row, text="Mouse click", variable=self.action_type, value="mouse",
+                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG, activebackground=PANEL_BG,
+                        highlightthickness=0, command=self._refresh_action_widgets).pack(anchor="w")
+        tk.Radiobutton(toggle_row, text="Key press", variable=self.action_type, value="key",
+                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG, activebackground=PANEL_BG,
+                        highlightthickness=0, command=self._refresh_action_widgets).pack(anchor="w")
 
-        row2 = tk.Frame(options, bg=PANEL_BG)
-        row2.pack(fill="x", padx=12, pady=(2, 12))
-        tk.Label(row2, text="Click type:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
-        ttk.Combobox(row2, textvariable=self.click_type, values=["Single", "Double"],
-                     state="readonly", width=9).pack(side="left")
+        self.action_detail = tk.Frame(options, bg=PANEL_BG)
+        self.action_detail.pack(fill="x", padx=12, pady=(2, 12))
 
         repeat = RoundPanel(cols)
         repeat.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
@@ -266,6 +272,55 @@ class AutoClicker(tk.Tk):
         self.status_var = tk.StringVar(value="Stopped")
         tk.Label(status, textvariable=self.status_var, bg=BG, fg=MUTED,
                  font=("Segoe UI", 9)).pack(anchor="w")
+
+        self._refresh_action_widgets()
+
+    # -----------------------------------------------------------------
+    # Mouse click vs. key press detail widgets
+    # -----------------------------------------------------------------
+    def _refresh_action_widgets(self):
+        for w in self.action_detail.winfo_children():
+            w.destroy()
+
+        if self.action_type.get() == "mouse":
+            row1 = tk.Frame(self.action_detail, bg=PANEL_BG)
+            row1.pack(fill="x", pady=2)
+            tk.Label(row1, text="Mouse button:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
+            ttk.Combobox(row1, textvariable=self.mouse_button, values=list(MOUSE_BUTTONS),
+                         state="readonly", width=9).pack(side="left")
+
+            row2 = tk.Frame(self.action_detail, bg=PANEL_BG)
+            row2.pack(fill="x", pady=2)
+            tk.Label(row2, text="Click type:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
+            ttk.Combobox(row2, textvariable=self.click_type, values=["Single", "Double"],
+                         state="readonly", width=9).pack(side="left")
+        else:
+            row = tk.Frame(self.action_detail, bg=PANEL_BG)
+            row.pack(fill="x", pady=2)
+            tk.Label(row, text="Key to press:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
+            self.key_btn = tk.Button(row, textvariable=self.bound_key_display,
+                                       command=self._listen_for_key, width=9,
+                                       relief="solid", bd=1, bg=PANEL_BG, fg=TEXT)
+            self.key_btn.pack(side="left")
+            tk.Label(self.action_detail, text="Click, then press any key to bind it",
+                     bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+
+    def _listen_for_key(self):
+        self.bound_key_display.set("Press a key…")
+        self._listening_for_key = True
+
+    def _on_capture_key(self, key):
+        if not self._listening_for_key:
+            return
+        self._listening_for_key = False
+        try:
+            char = key.char
+            self._bound_key_char = char
+            self._bound_key_obj = None
+            self.bound_key_display.set(char.upper() if char else str(key))
+        except AttributeError:
+            self._bound_key_obj = key
+            self.bound_key_display.set(_key_label(key))
 
     # -----------------------------------------------------------------
     # Cursor position picking
@@ -439,6 +494,9 @@ class AutoClicker(tk.Tk):
     # -----------------------------------------------------------------
     def _start_global_listener(self):
         def on_press(key):
+            if self._listening_for_key:
+                self.after(0, self._on_capture_key, key)
+                return
             if self._listening_for_hotkey:
                 return  # handled by the hotkey-setting dialog's own listener
             if key == self.hotkey:
@@ -510,11 +568,19 @@ class AutoClicker(tk.Tk):
             self.stop_event.wait(wait)
 
     def _fire_action(self):
-        if self.cursor_mode.get() == "pick":
-            mouse_ctl.position = (self.pick_x.get(), self.pick_y.get())
-        btn = MOUSE_BUTTONS[self.mouse_button.get()]
-        clicks = 2 if self.click_type.get() == "Double" else 1
-        mouse_ctl.click(btn, clicks)
+        if self.action_type.get() == "mouse":
+            if self.cursor_mode.get() == "pick":
+                mouse_ctl.position = (self.pick_x.get(), self.pick_y.get())
+            btn = MOUSE_BUTTONS[self.mouse_button.get()]
+            clicks = 2 if self.click_type.get() == "Double" else 1
+            mouse_ctl.click(btn, clicks)
+        else:
+            if self._bound_key_obj is not None:
+                kb_ctl.press(self._bound_key_obj)
+                kb_ctl.release(self._bound_key_obj)
+            else:
+                kb_ctl.press(self._bound_key_char)
+                kb_ctl.release(self._bound_key_char)
 
 
 if __name__ == "__main__":
