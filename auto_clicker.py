@@ -23,6 +23,112 @@ from tkinter import ttk
 
 from pynput import mouse, keyboard
 
+# Windows input backend. FiveM/GTA V is generally more reliable with the
+# native Windows SendInput API than pynput's higher-level Controller API.
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+    INPUT_MOUSE = 0
+    INPUT_KEYBOARD = 1
+    KEYEVENTF_KEYUP = 0x0002
+    KEYEVENTF_SCANCODE = 0x0008
+    MOUSEEVENTF_MOVE = 0x0001
+    MOUSEEVENTF_LEFTDOWN = 0x0002
+    MOUSEEVENTF_LEFTUP = 0x0004
+    MOUSEEVENTF_RIGHTDOWN = 0x0008
+    MOUSEEVENTF_RIGHTUP = 0x0010
+    MOUSEEVENTF_MIDDLEDOWN = 0x0020
+    MOUSEEVENTF_MIDDLEUP = 0x0040
+
+    class MOUSEINPUT(ctypes.Structure):
+        _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG),
+                    ("mouseData", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+                    ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
+
+    class KEYBDINPUT(ctypes.Structure):
+        _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
+                    ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                    ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
+
+    class HARDWAREINPUT(ctypes.Structure):
+        _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD), ("wParamH", wintypes.WORD)]
+
+    class INPUTUNION(ctypes.Union):
+        _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
+
+    class INPUT(ctypes.Structure):
+        _anonymous_ = ("u",)
+        _fields_ = [("type", wintypes.DWORD), ("u", INPUTUNION)]
+
+    user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
+    user32.SendInput.restype = wintypes.UINT
+    user32.SetCursorPos.argtypes = (wintypes.INT, wintypes.INT)
+    user32.SetCursorPos.restype = wintypes.BOOL
+
+    VK = {
+        **{chr(i): i for i in range(ord("A"), ord("Z") + 1)},
+        **{str(i): ord(str(i)) for i in range(10)},
+        "SPACE": 0x20, "ENTER": 0x0D, "TAB": 0x09, "ESC": 0x1B, "ESCAPE": 0x1B,
+        "BACKSPACE": 0x08, "SHIFT": 0x10, "CTRL": 0x11, "ALT": 0x12,
+        "UP": 0x26, "DOWN": 0x28, "LEFT": 0x25, "RIGHT": 0x27,
+        "DELETE": 0x2E, "INSERT": 0x2D, "HOME": 0x24, "END": 0x23,
+        "PAGEUP": 0x21, "PAGEDOWN": 0x22,
+    }
+    VK.update({f"F{i}": 0x6F + i for i in range(1, 13)})
+
+    def _vk_from_pynput(key):
+        if hasattr(key, "char") and key.char:
+            ch = key.char.upper()
+            if ch in VK:
+                return VK[ch]
+        name = str(key).replace("Key.", "").upper()
+        aliases = {"RETURN": "ENTER", "ESC": "ESCAPE", "SPACE": "SPACE",
+                   "SHIFT_L": "SHIFT", "SHIFT_R": "SHIFT", "CTRL_L": "CTRL",
+                   "CTRL_R": "CTRL", "ALT_L": "ALT", "ALT_R": "ALT"}
+        return VK.get(aliases.get(name, name))
+
+    def _send_input(inp):
+        if os.name != "nt":
+            return False
+        sent = user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+        return sent == 1
+
+    def _native_mouse_click(button, clicks=1):
+        flags = {
+            "Left": (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+            "Right": (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+            "Middle": (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+        }[button]
+        down, up = flags
+        for _ in range(clicks):
+            for flag in (down, up):
+                inp = INPUT(type=INPUT_MOUSE, mi=MOUSEINPUT(0, 0, 0, flag, 0, None))
+                if not _send_input(inp):
+                    raise ctypes.WinError(ctypes.get_last_error())
+            if clicks > 1:
+                time.sleep(0.03)
+
+    def _native_key_press(key):
+        vk = _vk_from_pynput(key) if not isinstance(key, int) else key
+        if vk is None:
+            return False
+        down = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, 0, 0, None))
+        up = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, KEYEVENTF_KEYUP, 0, None))
+        return _send_input(down) and _send_input(up)
+else:
+    def _native_mouse_click(button, clicks=1):
+        mouse_ctl.click(MOUSE_BUTTONS[button], clicks)
+
+    def _native_key_press(key):
+        if isinstance(key, str):
+            kb_ctl.press(key); kb_ctl.release(key)
+        else:
+            kb_ctl.press(key); kb_ctl.release(key)
+        return True
+
 APP_TITLE = "Jrz's Auto Havest Drug Macro"
 _BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(_BASE_DIR, "assets")
@@ -467,8 +573,12 @@ class AutoClicker(tk.Tk):
                 for t, x, y, button in self.recorded_events:
                     time.sleep(max(0.0, t - last_t))
                     last_t = t
-                    mouse_ctl.position = (x, y)
-                    mouse_ctl.click(button, 1)
+                    if os.name == "nt":
+                        user32.SetCursorPos(x, y)
+                    else:
+                        mouse_ctl.position = (x, y)
+                    name = {mouse.Button.left: "Left", mouse.Button.right: "Right", mouse.Button.middle: "Middle"}.get(button, "Left")
+                    _native_mouse_click(name, 1)
                 self.after(0, lambda: (play_btn.config(state="normal"), refresh_status()))
 
             threading.Thread(target=run, daemon=True).start()
@@ -570,17 +680,16 @@ class AutoClicker(tk.Tk):
     def _fire_action(self):
         if self.action_type.get() == "mouse":
             if self.cursor_mode.get() == "pick":
-                mouse_ctl.position = (self.pick_x.get(), self.pick_y.get())
-            btn = MOUSE_BUTTONS[self.mouse_button.get()]
+                if os.name == "nt":
+                    user32.SetCursorPos(self.pick_x.get(), self.pick_y.get())
+                else:
+                    mouse_ctl.position = (self.pick_x.get(), self.pick_y.get())
+            btn_name = self.mouse_button.get()
             clicks = 2 if self.click_type.get() == "Double" else 1
-            mouse_ctl.click(btn, clicks)
+            _native_mouse_click(btn_name, clicks)
         else:
-            if self._bound_key_obj is not None:
-                kb_ctl.press(self._bound_key_obj)
-                kb_ctl.release(self._bound_key_obj)
-            else:
-                kb_ctl.press(self._bound_key_char)
-                kb_ctl.release(self._bound_key_char)
+            key = self._bound_key_obj if self._bound_key_obj is not None else self._bound_key_char
+            _native_key_press(key)
 
 
 if __name__ == "__main__":
