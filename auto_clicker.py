@@ -113,7 +113,7 @@ if os.name == "nt":
             if clicks > 1:
                 time.sleep(0.03)
 
-    def _native_key_press(key):
+    def _native_key_press(key, hold_ms=80):
         vk = _vk_from_pynput(key) if not isinstance(key, int) else key
         if vk is None:
             return False
@@ -126,16 +126,21 @@ if os.name == "nt":
         else:
             down = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, 0, 0, None))
             up = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, KEYEVENTF_KEYUP, 0, None))
-        return _send_input(down) and _send_input(up)
+        if not _send_input(down):
+            return False
+        # A tiny key-down/key-up pulse can be missed by game control polling.
+        # Holding the key briefly makes the event visible across several GTA/FiveM frames.
+        time.sleep(max(0.01, hold_ms / 1000.0))
+        return _send_input(up)
 else:
     def _native_mouse_click(button, clicks=1):
         mouse_ctl.click(MOUSE_BUTTONS[button], clicks)
 
-    def _native_key_press(key):
+    def _native_key_press(key, hold_ms=80):
         if isinstance(key, str):
-            kb_ctl.press(key); kb_ctl.release(key)
+            kb_ctl.press(key); time.sleep(max(0.01, hold_ms / 1000.0)); kb_ctl.release(key)
         else:
-            kb_ctl.press(key); kb_ctl.release(key)
+            kb_ctl.press(key); time.sleep(max(0.01, hold_ms / 1000.0)); kb_ctl.release(key)
         return True
 
 APP_TITLE = "Jrz's Auto Havest Drug Macro"
@@ -203,6 +208,7 @@ class AutoClicker(tk.Tk):
         self.action_type = tk.StringVar(value="mouse")  # "mouse", "key" or "fivem"
         self.mouse_button = tk.StringVar(value="Left")
         self.fivem_key = tk.StringVar(value="E")
+        self.fivem_hold_ms = tk.IntVar(value=120)
         self.click_type = tk.StringVar(value="Single")
 
         self._bound_key_obj = None
@@ -430,7 +436,14 @@ class AutoClicker(tk.Tk):
             ttk.Combobox(row, textvariable=self.fivem_key,
                          values=["E", "G", "F", "H", "Y", "X", "ENTER", "SPACE"],
                          state="readonly", width=9).pack(side="left")
-            tk.Label(self.action_detail, text="Use this for FiveM world interactions (default: E)",
+            hold_row = tk.Frame(self.action_detail, bg=PANEL_BG)
+            hold_row.pack(fill="x", pady=(4, 0))
+            tk.Label(hold_row, text="Hold E for:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
+            tk.Spinbox(hold_row, from_=30, to=1000, textvariable=self.fivem_hold_ms, width=7,
+                       justify="center", relief="solid", bd=1, bg=PANEL_BG, fg=TEXT,
+                       buttonbackground=PANEL_BG).pack(side="left")
+            tk.Label(hold_row, text="ms", bg=PANEL_BG, fg=TEXT).pack(side="left", padx=(4, 0))
+            tk.Label(self.action_detail, text="FiveM gets a real key-down, short hold, then key-up.",
                      bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
 
     def _listen_for_key(self):
@@ -714,7 +727,7 @@ class AutoClicker(tk.Tk):
             # GTA/FiveM world interaction points commonly use E rather than
             # a Windows mouse click. This mode intentionally sends a keyboard
             # event so the interaction is handled by the game/resource.
-            _native_key_press(self.fivem_key.get())
+            _native_key_press(self.fivem_key.get(), self.fivem_hold_ms.get())
         else:
             key = self._bound_key_obj if self._bound_key_obj is not None else self._bound_key_char
             _native_key_press(key)
