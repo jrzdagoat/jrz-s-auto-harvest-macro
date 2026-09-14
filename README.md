@@ -1,28 +1,22 @@
 # Jrz's Auto Havest Drug Macro
 
-A Windows desktop auto-clicker with a native Windows `SendInput` backend for mouse and keyboard actions. This is intended to improve compatibility with GTA V/FiveM compared with using `pynput.Controller` for the actual game input.
+FiveM/GTA V-friendly desktop macro for repeating mouse clicks or keyboard interactions.
 
-## FiveM/GTA V input
+## FiveM world interaction mode
 
-On Windows, mouse clicks and key presses are sent through the native Win32 `SendInput` API. Cursor positioning uses `SetCursorPos`.
+If the drug pickup point is a GTA/FiveM world interaction rather than a UI button, use **FiveM interaction** in Click options. It sends a keyboard interaction event (default **E**) instead of a Windows mouse click. You can choose another common interaction key from the dropdown.
 
-The global hotkey and recording UI still use `pynput` listeners because they are used for detecting input rather than injecting the game action.
+This is useful for servers/resources where the interaction is triggered by a key such as E. It does not bypass server-side anti-cheat or resource-specific interaction systems.
 
-### Important
+## Run
 
-FiveM servers/resources can implement their own input handling or anti-automation measures. No desktop macro can guarantee that every server will accept synthetic input.
-
-## Run from source
-
-```powershell
+```bash
 pip install -r requirements.txt
 python auto_clicker.py
 ```
 
-## Build the Windows EXE
+## Build
 
-```powershell
-pip install -r requirements.txt
-pip install pyinstaller
+```bash
 pyinstaller --onefile --windowed --name "JrzAutoHavestDrugMacro" --icon assets/icon.ico --add-data "assets;assets" auto_clicker.py
 ```

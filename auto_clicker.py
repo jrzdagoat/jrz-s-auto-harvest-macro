@@ -67,6 +67,8 @@ if os.name == "nt":
     user32.SendInput.restype = wintypes.UINT
     user32.SetCursorPos.argtypes = (wintypes.INT, wintypes.INT)
     user32.SetCursorPos.restype = wintypes.BOOL
+    user32.MapVirtualKeyW.argtypes = (wintypes.UINT, wintypes.UINT)
+    user32.MapVirtualKeyW.restype = wintypes.UINT
 
     VK = {
         **{chr(i): i for i in range(ord("A"), ord("Z") + 1)},
@@ -115,8 +117,15 @@ if os.name == "nt":
         vk = _vk_from_pynput(key) if not isinstance(key, int) else key
         if vk is None:
             return False
-        down = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, 0, 0, None))
-        up = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, KEYEVENTF_KEYUP, 0, None))
+        # Use hardware scan codes where possible. GTA V/FiveM generally
+        # handles these more like physical keyboard input than a plain VK.
+        scan = user32.MapVirtualKeyW(vk, 0)
+        if scan:
+            down = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(0, scan, KEYEVENTF_SCANCODE, 0, None))
+            up = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(0, scan, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, None))
+        else:
+            down = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, 0, 0, None))
+            up = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, KEYEVENTF_KEYUP, 0, None))
         return _send_input(down) and _send_input(up)
 else:
     def _native_mouse_click(button, clicks=1):
@@ -191,8 +200,9 @@ class AutoClicker(tk.Tk):
         self.stop_event = threading.Event()
         self.worker = None
 
-        self.action_type = tk.StringVar(value="mouse")  # "mouse" or "key"
+        self.action_type = tk.StringVar(value="mouse")  # "mouse", "key" or "fivem"
         self.mouse_button = tk.StringVar(value="Left")
+        self.fivem_key = tk.StringVar(value="E")
         self.click_type = tk.StringVar(value="Single")
 
         self._bound_key_obj = None
@@ -300,6 +310,9 @@ class AutoClicker(tk.Tk):
         tk.Radiobutton(toggle_row, text="Key press", variable=self.action_type, value="key",
                         bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG, activebackground=PANEL_BG,
                         highlightthickness=0, command=self._refresh_action_widgets).pack(anchor="w")
+        tk.Radiobutton(toggle_row, text="FiveM interaction", variable=self.action_type, value="fivem",
+                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG, activebackground=PANEL_BG,
+                        highlightthickness=0, command=self._refresh_action_widgets).pack(anchor="w")
 
         self.action_detail = tk.Frame(options, bg=PANEL_BG)
         self.action_detail.pack(fill="x", padx=12, pady=(2, 12))
@@ -400,7 +413,7 @@ class AutoClicker(tk.Tk):
             tk.Label(row2, text="Click type:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
             ttk.Combobox(row2, textvariable=self.click_type, values=["Single", "Double"],
                          state="readonly", width=9).pack(side="left")
-        else:
+        elif self.action_type.get() == "key":
             row = tk.Frame(self.action_detail, bg=PANEL_BG)
             row.pack(fill="x", pady=2)
             tk.Label(row, text="Key to press:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
@@ -409,6 +422,15 @@ class AutoClicker(tk.Tk):
                                        relief="solid", bd=1, bg=PANEL_BG, fg=TEXT)
             self.key_btn.pack(side="left")
             tk.Label(self.action_detail, text="Click, then press any key to bind it",
+                     bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+        else:
+            row = tk.Frame(self.action_detail, bg=PANEL_BG)
+            row.pack(fill="x", pady=2)
+            tk.Label(row, text="Interaction key:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
+            ttk.Combobox(row, textvariable=self.fivem_key,
+                         values=["E", "G", "F", "H", "Y", "X", "ENTER", "SPACE"],
+                         state="readonly", width=9).pack(side="left")
+            tk.Label(self.action_detail, text="Use this for FiveM world interactions (default: E)",
                      bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
 
     def _listen_for_key(self):
@@ -678,7 +700,8 @@ class AutoClicker(tk.Tk):
             self.stop_event.wait(wait)
 
     def _fire_action(self):
-        if self.action_type.get() == "mouse":
+        mode = self.action_type.get()
+        if mode == "mouse":
             if self.cursor_mode.get() == "pick":
                 if os.name == "nt":
                     user32.SetCursorPos(self.pick_x.get(), self.pick_y.get())
@@ -687,6 +710,11 @@ class AutoClicker(tk.Tk):
             btn_name = self.mouse_button.get()
             clicks = 2 if self.click_type.get() == "Double" else 1
             _native_mouse_click(btn_name, clicks)
+        elif mode == "fivem":
+            # GTA/FiveM world interaction points commonly use E rather than
+            # a Windows mouse click. This mode intentionally sends a keyboard
+            # event so the interaction is handled by the game/resource.
+            _native_key_press(self.fivem_key.get())
         else:
             key = self._bound_key_obj if self._bound_key_obj is not None else self._bound_key_char
             _native_key_press(key)
