@@ -136,16 +136,16 @@ ICON_ICO = os.path.join(ASSETS_DIR, "icon.ico")
 ICON_PNG = os.path.join(ASSETS_DIR, "icon.png")
 
 # Simple modern dark palette
-BG = "#111318"
-CARD = "#191c22"
-CARD_2 = "#20242c"
-TEXT = "#f3f4f6"
-MUTED = "#8f96a3"
-ACCENT = "#7c5cff"
-ACCENT_HOVER = "#8d70ff"
-RED = "#ef5b67"
-GREEN = "#35c98a"
-BORDER = "#2a2f38"
+BG = "#080808"
+CARD = "#101010"
+CARD_2 = "#171717"
+TEXT = "#f5f5f5"
+MUTED = "#858585"
+ACCENT = "#ffffff"
+ACCENT_HOVER = "#dddddd"
+RED = "#ffffff"
+GREEN = "#ffffff"
+BORDER = "#292929"
 
 mouse_ctl = mouse.Controller()
 MOUSE_BUTTONS = {"Left": mouse.Button.left, "Right": mouse.Button.right, "Middle": mouse.Button.middle}
@@ -167,7 +167,7 @@ class AutoClicker(tk.Tk):
         self.title(APP_TITLE)
         self.configure(bg=BG)
         self.resizable(False, False)
-        self.geometry("430x510")
+        self.geometry("440x545")
         self._set_icon()
 
         self.running = False
@@ -230,77 +230,103 @@ class AutoClicker(tk.Tk):
 
     def _build_ui(self):
         root = tk.Frame(self, bg=BG)
-        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.pack(fill="both", expand=True, padx=18, pady=16)
 
+        # Minimal header
         header = tk.Frame(root, bg=BG)
-        header.pack(fill="x", pady=(0, 14))
-        tk.Label(header, text="Jrz Auto Harvest", bg=BG, fg=TEXT,
-                 font=("Segoe UI", 18, "bold")).pack(side="left")
-        self.status_dot = tk.Label(header, text="●", bg=BG, fg=MUTED,
-                                   font=("Segoe UI", 12))
-        self.status_dot.pack(side="right", padx=(0, 5))
-        self.status_text = tk.Label(header, text="Stopped", bg=BG, fg=MUTED,
-                                    font=("Segoe UI", 9))
-        self.status_text.pack(side="right")
+        header.pack(fill="x", pady=(0, 12))
+        title_box = tk.Frame(header, bg=BG)
+        title_box.pack(side="left")
+        tk.Label(title_box, text="JRZ", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        tk.Label(title_box, text="Auto Harvest", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 18, "bold")).pack(anchor="w")
+        tk.Frame(title_box, bg=TEXT, height=2, width=34).pack(anchor="w", pady=(5, 0))
+
+        status_box = tk.Frame(header, bg=BG)
+        status_box.pack(side="right", pady=(7, 0))
+        self.status_dot = tk.Label(status_box, text="●", bg=BG, fg=MUTED,
+                                   font=("Segoe UI", 9))
+        self.status_dot.pack(side="left", padx=(0, 5))
+        self.status_text = tk.Label(status_box, text="Stopped", bg=BG, fg=MUTED,
+                                    font=("Segoe UI", 9, "bold"))
+        self.status_text.pack(side="left")
+
+        # ttk styling for the monochrome selectors
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        style.configure("Mono.TCombobox", fieldbackground=CARD_2, background=CARD_2,
+                        foreground=TEXT, arrowcolor=TEXT, bordercolor=BORDER,
+                        lightcolor=BORDER, darkcolor=BORDER, padding=5)
+        style.map("Mono.TCombobox", fieldbackground=[("readonly", CARD_2)],
+                  foreground=[("readonly", TEXT)], selectbackground=[("readonly", CARD_2)],
+                  selectforeground=[("readonly", TEXT)])
 
         action = self._card(root)
-        action.pack(fill="x", pady=(0, 10))
+        action.pack(fill="x", pady=(0, 9))
         top = tk.Frame(action, bg=CARD)
-        top.pack(fill="x", padx=14, pady=(12, 6))
-        self._label(top, "ACTION", 8, MUTED, True).pack(side="left")
-        ttk.Style().configure("Dark.TCombobox", fieldbackground=CARD_2, background=CARD_2,
-                              foreground=TEXT)
+        top.pack(fill="x", padx=14, pady=(12, 7))
+        self._label(top, "MODE", 8, MUTED, True).pack(side="left")
         ttk.Combobox(top, textvariable=self.action_type,
-                     values=["fivem", "mouse", "key"], state="readonly", width=14).pack(side="right")
+                     values=["fivem", "mouse", "key"], state="readonly", width=13,
+                     style="Mono.TCombobox").pack(side="right")
         self.action_detail = tk.Frame(action, bg=CARD)
         self.action_detail.pack(fill="x", padx=14, pady=(0, 12))
 
         timing = self._card(root)
-        timing.pack(fill="x", pady=(0, 10))
+        timing.pack(fill="x", pady=(0, 9))
         row = tk.Frame(timing, bg=CARD)
-        row.pack(fill="x", padx=14, pady=12)
+        row.pack(fill="x", padx=14, pady=11)
         self._label(row, "INTERVAL", 8, MUTED, True).pack(side="left")
-        for var, unit in ((self.millis, "ms"), (self.secs, "sec")):
+        for var, unit in ((self.millis, "MS"), (self.secs, "SEC")):
             tk.Spinbox(row, from_=0, to=9999, textvariable=var, width=5,
-                       bg=CARD_2, fg=TEXT, insertbackground=TEXT, relief="flat", buttonbackground=CARD_2,
+                       bg=CARD_2, fg=TEXT, insertbackground=TEXT, relief="flat",
+                       buttonbackground=CARD_2, highlightthickness=1,
+                       highlightbackground=BORDER, highlightcolor=TEXT,
                        justify="center").pack(side="right", padx=(4, 2))
             self._label(row, unit, 8, MUTED).pack(side="right")
 
         repeat = self._card(root)
-        repeat.pack(fill="x", pady=(0, 10))
+        repeat.pack(fill="x", pady=(0, 12))
         rr = tk.Frame(repeat, bg=CARD)
-        rr.pack(fill="x", padx=14, pady=12)
+        rr.pack(fill="x", padx=14, pady=10)
         self._label(rr, "REPEAT", 8, MUTED, True).pack(side="left")
         tk.Radiobutton(rr, text="Until stopped", variable=self.repeat_mode, value="until_stopped",
                        bg=CARD, fg=TEXT, selectcolor=CARD_2, activebackground=CARD,
                        activeforeground=TEXT, highlightthickness=0).pack(side="right")
         tk.Radiobutton(rr, text="Count", variable=self.repeat_mode, value="times",
                        bg=CARD, fg=TEXT, selectcolor=CARD_2, activebackground=CARD,
-                       activeforeground=TEXT, highlightthickness=0).pack(side="right", padx=(0, 8))
+                       activeforeground=TEXT, highlightthickness=0).pack(side="right", padx=(0, 7))
         tk.Spinbox(rr, from_=1, to=99999, textvariable=self.repeat_times, width=5,
-                   bg=CARD_2, fg=TEXT, insertbackground=TEXT, relief="flat").pack(side="right", padx=(4, 4))
+                   bg=CARD_2, fg=TEXT, insertbackground=TEXT, relief="flat",
+                   highlightthickness=1, highlightbackground=BORDER,
+                   highlightcolor=TEXT).pack(side="right", padx=(4, 4))
 
         buttons = tk.Frame(root, bg=BG)
-        buttons.pack(fill="x", pady=(2, 0))
+        buttons.pack(fill="x")
         self.start_btn = tk.Button(buttons, text="START  •  F6", command=self.start,
-                                   bg=ACCENT, fg="white", activebackground=ACCENT_HOVER,
-                                   activeforeground="white", relief="flat", bd=0,
+                                   bg=ACCENT, fg="#080808", activebackground=ACCENT_HOVER,
+                                   activeforeground="#080808", relief="flat", bd=0,
                                    font=("Segoe UI", 10, "bold"), height=2, cursor="hand2")
-        self.start_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.start_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
         self.stop_btn = tk.Button(buttons, text="STOP", command=self.stop,
                                   bg=CARD_2, fg=MUTED, activebackground=BORDER,
                                   activeforeground=TEXT, relief="flat", bd=0,
-                                  font=("Segoe UI", 10, "bold"), height=2, state="disabled")
-        self.stop_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
+                                  font=("Segoe UI", 10, "bold"), height=2,
+                                  state="disabled", cursor="hand2")
+        self.stop_btn.pack(side="right", fill="x", expand=True, padx=(4, 0))
 
         lower = tk.Frame(root, bg=BG)
         lower.pack(fill="x", pady=(8, 0))
-        tk.Button(lower, text="Hotkey", command=self._open_hotkey_dialog,
+        tk.Button(lower, text="HOTKEY", command=self._open_hotkey_dialog,
                   bg=BG, fg=MUTED, activebackground=BG, activeforeground=TEXT,
-                  relief="flat", bd=0).pack(side="left")
-        tk.Button(lower, text="Record / Playback", command=self._open_record_dialog,
+                  relief="flat", bd=0, font=("Segoe UI", 8, "bold"), cursor="hand2").pack(side="left")
+        tk.Button(lower, text="RECORD / PLAYBACK", command=self._open_record_dialog,
                   bg=BG, fg=MUTED, activebackground=BG, activeforeground=TEXT,
-                  relief="flat", bd=0).pack(side="right")
+                  relief="flat", bd=0, font=("Segoe UI", 8, "bold"), cursor="hand2").pack(side="right")
 
         self._refresh_action_widgets()
 
@@ -313,36 +339,38 @@ class AutoClicker(tk.Tk):
             row.pack(fill="x")
             self._label(row, "Interaction key", 9).pack(side="left")
             tk.Button(row, textvariable=self.fivem_key_display, command=self._listen_for_fivem_key,
-                      bg=CARD_2, fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
-                      relief="flat", bd=0, width=12, cursor="hand2",
-                      font=("Segoe UI", 9, "bold")).pack(side="right")
+                      bg=ACCENT, fg="#080808", activebackground=ACCENT_HOVER,
+                      activeforeground="#080808", relief="flat", bd=0, width=10,
+                      cursor="hand2", font=("Segoe UI", 9, "bold")).pack(side="right")
             row2 = tk.Frame(self.action_detail, bg=CARD)
             row2.pack(fill="x", pady=(9, 0))
             self._label(row2, "Hold", 9).pack(side="left")
             tk.Spinbox(row2, from_=30, to=500, textvariable=self.fivem_hold_ms, width=6,
                        bg=CARD_2, fg=TEXT, insertbackground=TEXT, relief="flat",
-                       buttonbackground=CARD_2).pack(side="right")
+                       buttonbackground=CARD_2, highlightthickness=1,
+                       highlightbackground=BORDER, highlightcolor=TEXT).pack(side="right")
             self._label(row2, "milliseconds", 8, MUTED).pack(side="right", padx=(0, 7))
-            tk.Checkbutton(row2, text="No pause between E presses", variable=self.no_pause,
-                           bg=CARD, fg=GREEN, selectcolor=CARD_2, activebackground=CARD,
-                           activeforeground=GREEN, highlightthickness=0).pack(side="left", padx=(12, 0))
-            self._label(self.action_detail, "Click the key box and press any keyboard key. E is the default.",
+            tk.Checkbutton(row2, text="No pause", variable=self.no_pause,
+                           bg=CARD, fg=TEXT, selectcolor=CARD_2, activebackground=CARD,
+                           activeforeground=TEXT, highlightthickness=0).pack(side="left", padx=(12, 0))
+            self._label(self.action_detail, "E is default • click the key box to choose any key",
                         8, MUTED).pack(anchor="w", pady=(7, 0))
         elif self.action_type.get() == "mouse":
             row = tk.Frame(self.action_detail, bg=CARD); row.pack(fill="x")
             self._label(row, "Mouse button", 9).pack(side="left")
             ttk.Combobox(row, textvariable=self.mouse_button, values=list(MOUSE_BUTTONS),
-                         state="readonly", width=9).pack(side="right")
+                         state="readonly", width=9, style="Mono.TCombobox").pack(side="right")
             row2 = tk.Frame(self.action_detail, bg=CARD); row2.pack(fill="x", pady=(7, 0))
             self._label(row2, "Click type", 9).pack(side="left")
             ttk.Combobox(row2, textvariable=self.click_type, values=["Single", "Double"],
-                         state="readonly", width=9).pack(side="right")
+                         state="readonly", width=9, style="Mono.TCombobox").pack(side="right")
         else:
             row = tk.Frame(self.action_detail, bg=CARD); row.pack(fill="x")
             self._label(row, "Key to press", 9).pack(side="left")
             tk.Button(row, textvariable=self.bound_key_display, command=self._listen_for_key,
-                      bg=CARD_2, fg=TEXT, activebackground=BORDER, relief="flat", width=9).pack(side="right")
-
+                      bg=ACCENT, fg="#080808", activebackground=ACCENT_HOVER,
+                      activeforeground="#080808", relief="flat", width=9,
+                      cursor="hand2", font=("Segoe UI", 9, "bold")).pack(side="right")
     def _listen_for_fivem_key(self):
         self._listening_for_fivem_key = True
         self.fivem_key_display.set("Press any key…")
