@@ -1,18 +1,4 @@
-"""
-Jrz's Auto Havest Drug Macro
------------------------------
-A small desktop auto-clicker. Set an interval, choose a click type / repeat
-count, optionally lock clicks to a fixed screen position, start it with a
-button or a rebindable hotkey (default F6), and record/play back simple
-click macros.
-
-Dependencies: pynput
-    pip install pynput
-
-Build to a Windows .exe with PyInstaller (see .github/workflows/build.yml):
-    pyinstaller --onefile --windowed --name "JrzAutoHavestDrugMacro" \
-        --icon assets/icon.ico --add-data "assets;assets" auto_clicker.py
-"""
+"""Jrz's Auto Havest Drug Macro - FiveM focused macro."""
 
 import os
 import sys
@@ -20,22 +6,20 @@ import time
 import threading
 import tkinter as tk
 from tkinter import ttk
-
 from pynput import mouse, keyboard
 
-# Windows input backend. FiveM/GTA V is generally more reliable with the
-# native Windows SendInput API than pynput's higher-level Controller API.
+# ---------------------------------------------------------------------------
+# Native Windows input backend
+# ---------------------------------------------------------------------------
 if os.name == "nt":
     import ctypes
     from ctypes import wintypes
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
-
     INPUT_MOUSE = 0
     INPUT_KEYBOARD = 1
     KEYEVENTF_KEYUP = 0x0002
     KEYEVENTF_SCANCODE = 0x0008
-    MOUSEEVENTF_MOVE = 0x0001
     MOUSEEVENTF_LEFTDOWN = 0x0002
     MOUSEEVENTF_LEFTUP = 0x0004
     MOUSEEVENTF_RIGHTDOWN = 0x0008
@@ -54,7 +38,8 @@ if os.name == "nt":
                     ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
 
     class HARDWAREINPUT(ctypes.Structure):
-        _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD), ("wParamH", wintypes.WORD)]
+        _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD),
+                    ("wParamH", wintypes.WORD)]
 
     class INPUTUNION(ctypes.Union):
         _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
@@ -73,103 +58,98 @@ if os.name == "nt":
     VK = {
         **{chr(i): i for i in range(ord("A"), ord("Z") + 1)},
         **{str(i): ord(str(i)) for i in range(10)},
-        "SPACE": 0x20, "ENTER": 0x0D, "TAB": 0x09, "ESC": 0x1B, "ESCAPE": 0x1B,
-        "BACKSPACE": 0x08, "SHIFT": 0x10, "CTRL": 0x11, "ALT": 0x12,
+        "SPACE": 0x20, "ENTER": 0x0D, "TAB": 0x09,
+        "ESC": 0x1B, "ESCAPE": 0x1B, "BACKSPACE": 0x08,
+        "SHIFT": 0x10, "CTRL": 0x11, "ALT": 0x12,
         "UP": 0x26, "DOWN": 0x28, "LEFT": 0x25, "RIGHT": 0x27,
         "DELETE": 0x2E, "INSERT": 0x2D, "HOME": 0x24, "END": 0x23,
         "PAGEUP": 0x21, "PAGEDOWN": 0x22,
     }
     VK.update({f"F{i}": 0x6F + i for i in range(1, 13)})
 
-    def _vk_from_pynput(key):
+    def _vk_from_key(key):
+        if isinstance(key, int):
+            return key
+        # pynput KeyCode objects can expose the real Windows virtual-key code.
+        # Prefer it so virtually any keyboard key (punctuation, numpad, etc.)
+        # can be used, not just the predefined letters.
+        vk = getattr(key, "vk", None)
+        if vk:
+            return vk
         if hasattr(key, "char") and key.char:
-            ch = key.char.upper()
-            if ch in VK:
-                return VK[ch]
+            return VK.get(key.char.upper())
         name = str(key).replace("Key.", "").upper()
-        aliases = {"RETURN": "ENTER", "ESC": "ESCAPE", "SPACE": "SPACE",
-                   "SHIFT_L": "SHIFT", "SHIFT_R": "SHIFT", "CTRL_L": "CTRL",
-                   "CTRL_R": "CTRL", "ALT_L": "ALT", "ALT_R": "ALT"}
+        aliases = {"RETURN": "ENTER", "ESC": "ESCAPE", "SHIFT_L": "SHIFT",
+                   "SHIFT_R": "SHIFT", "CTRL_L": "CTRL", "CTRL_R": "CTRL",
+                   "ALT_L": "ALT", "ALT_R": "ALT"}
         return VK.get(aliases.get(name, name))
 
-    def _send_input(inp):
-        if os.name != "nt":
-            return False
-        sent = user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
-        return sent == 1
+    def _send(inp):
+        return user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT)) == 1
 
     def _native_mouse_click(button, clicks=1):
-        flags = {
-            "Left": (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
-            "Right": (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
-            "Middle": (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
-        }[button]
-        down, up = flags
-        for _ in range(clicks):
-            for flag in (down, up):
-                inp = INPUT(type=INPUT_MOUSE, mi=MOUSEINPUT(0, 0, 0, flag, 0, None))
-                if not _send_input(inp):
-                    raise ctypes.WinError(ctypes.get_last_error())
-            if clicks > 1:
-                time.sleep(0.03)
+        down, up = {"Left": (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+                    "Right": (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+                    "Middle": (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP)}[button]
+        for i in range(clicks):
+            _send(INPUT(type=INPUT_MOUSE, mi=MOUSEINPUT(0, 0, 0, down, 0, None)))
+            _send(INPUT(type=INPUT_MOUSE, mi=MOUSEINPUT(0, 0, 0, up, 0, None)))
+            if i + 1 < clicks:
+                time.sleep(0.02)
 
-    def _native_key_press(key, hold_ms=80):
-        vk = _vk_from_pynput(key) if not isinstance(key, int) else key
+    def _key_down_up(key, hold_ms=60):
+        vk = _vk_from_key(key)
         if vk is None:
             return False
-        # Use hardware scan codes where possible. GTA V/FiveM generally
-        # handles these more like physical keyboard input than a plain VK.
         scan = user32.MapVirtualKeyW(vk, 0)
         if scan:
-            down = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(0, scan, KEYEVENTF_SCANCODE, 0, None))
-            up = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(0, scan, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, None))
+            down = INPUT(type=INPUT_KEYBOARD,
+                         ki=KEYBDINPUT(0, scan, KEYEVENTF_SCANCODE, 0, None))
+            up = INPUT(type=INPUT_KEYBOARD,
+                       ki=KEYBDINPUT(0, scan, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, None))
         else:
             down = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, 0, 0, None))
             up = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, 0, KEYEVENTF_KEYUP, 0, None))
-        if not _send_input(down):
+        if not _send(down):
             return False
-        # A tiny key-down/key-up pulse can be missed by game control polling.
-        # Holding the key briefly makes the event visible across several GTA/FiveM frames.
+        # Long enough for FiveM/GTA's frame-based input polling, but short
+        # enough that the next press can happen immediately after release.
         time.sleep(max(0.01, hold_ms / 1000.0))
-        return _send_input(up)
+        return _send(up)
 else:
     def _native_mouse_click(button, clicks=1):
-        mouse_ctl.click(MOUSE_BUTTONS[button], clicks)
+        ctl = mouse.Controller()
+        ctl.click({"Left": mouse.Button.left, "Right": mouse.Button.right,
+                   "Middle": mouse.Button.middle}[button], clicks)
 
-    def _native_key_press(key, hold_ms=80):
-        if isinstance(key, str):
-            kb_ctl.press(key); time.sleep(max(0.01, hold_ms / 1000.0)); kb_ctl.release(key)
-        else:
-            kb_ctl.press(key); time.sleep(max(0.01, hold_ms / 1000.0)); kb_ctl.release(key)
+    def _key_down_up(key, hold_ms=60):
+        ctl = keyboard.Controller()
+        ctl.press(key)
+        time.sleep(max(0.01, hold_ms / 1000.0))
+        ctl.release(key)
         return True
 
-APP_TITLE = "Jrz's Auto Havest Drug Macro"
+APP_TITLE = "Jrz Auto Harvest"
 _BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(_BASE_DIR, "assets")
 ICON_ICO = os.path.join(ASSETS_DIR, "icon.ico")
 ICON_PNG = os.path.join(ASSETS_DIR, "icon.png")
 
-# ---------------------------------------------------------------------------
-# Colors / style - white panels, blue accents (matches the reference UI)
-# ---------------------------------------------------------------------------
-BG = "#f3f4f6"
-PANEL_BG = "#ffffff"
-BLUE = "#1a73e8"
-TEXT = "#20242c"
-MUTED = "#9aa0a8"
-BORDER = "#e3e5e8"
+# Simple modern dark palette
+BG = "#111318"
+CARD = "#191c22"
+CARD_2 = "#20242c"
+TEXT = "#f3f4f6"
+MUTED = "#8f96a3"
+ACCENT = "#7c5cff"
+ACCENT_HOVER = "#8d70ff"
+RED = "#ef5b67"
+GREEN = "#35c98a"
+BORDER = "#2a2f38"
 
 mouse_ctl = mouse.Controller()
-kb_ctl = keyboard.Controller()
-
 MOUSE_BUTTONS = {"Left": mouse.Button.left, "Right": mouse.Button.right, "Middle": mouse.Button.middle}
-
-KEY_NAME_OVERRIDES = {
-    keyboard.Key.f1: "F1", keyboard.Key.f2: "F2", keyboard.Key.f3: "F3",
-    keyboard.Key.f4: "F4", keyboard.Key.f5: "F5", keyboard.Key.f6: "F6",
-    keyboard.Key.f7: "F7", keyboard.Key.f8: "F8", keyboard.Key.f9: "F9",
-    keyboard.Key.f10: "F10", keyboard.Key.f11: "F11", keyboard.Key.f12: "F12",
-}
+KEY_NAME_OVERRIDES = {getattr(keyboard.Key, f"f{i}"): f"F{i}" for i in range(1, 13)}
 
 
 def _key_label(key):
@@ -181,73 +161,56 @@ def _key_label(key):
         return str(key).replace("Key.", "").upper()
 
 
-class RoundPanel(tk.Frame):
-    """A plain white card-style panel (flat borders approximate the
-    rounded-corner cards in the reference design - real rounded corners
-    aren't available with stock tkinter widgets)."""
-
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, bg=PANEL_BG, highlightbackground=BORDER,
-                          highlightthickness=1, bd=0, **kwargs)
-
-
 class AutoClicker(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
         self.configure(bg=BG)
         self.resizable(False, False)
-        self.geometry("460x560")
+        self.geometry("430x510")
         self._set_icon()
 
-        # ---- state -------------------------------------------------------
         self.running = False
         self.stop_event = threading.Event()
         self.worker = None
 
-        self.action_type = tk.StringVar(value="mouse")  # "mouse", "key" or "fivem"
-        self.mouse_button = tk.StringVar(value="Left")
+        self.action_type = tk.StringVar(value="fivem")
         self.fivem_key = tk.StringVar(value="E")
-        self.fivem_hold_ms = tk.IntVar(value=120)
+        self.fivem_key_obj = None
+        self.fivem_key_char = "e"
+        self.fivem_key_display = tk.StringVar(value="E")
+        self.fivem_hold_ms = tk.IntVar(value=60)
+        self.no_pause = tk.BooleanVar(value=True)
+        self.mouse_button = tk.StringVar(value="Left")
         self.click_type = tk.StringVar(value="Single")
-
-        self._bound_key_obj = None
-        self._bound_key_char = "f"
-        self.bound_key_display = tk.StringVar(value="F")
-        self._listening_for_key = False
-
-        self.repeat_mode = tk.StringVar(value="until_stopped")  # "times" or "until_stopped"
-        self.repeat_times = tk.IntVar(value=1)
-
+        self.cursor_mode = tk.StringVar(value="current")
+        self.pick_x = tk.IntVar(value=0)
+        self.pick_y = tk.IntVar(value=0)
         self.hours = tk.IntVar(value=0)
         self.mins = tk.IntVar(value=0)
         self.secs = tk.IntVar(value=0)
         self.millis = tk.IntVar(value=100)
-
+        self.repeat_mode = tk.StringVar(value="until_stopped")
+        self.repeat_times = tk.IntVar(value=1)
         self.random_offset = tk.BooleanVar(value=False)
         self.offset_ms = tk.IntVar(value=40)
-
-        self.cursor_mode = tk.StringVar(value="current")  # "current" or "pick"
-        self.pick_x = tk.IntVar(value=0)
-        self.pick_y = tk.IntVar(value=0)
-        self._picking = False
 
         self.hotkey = keyboard.Key.f6
         self.hotkey_display = tk.StringVar(value="F6")
         self._listening_for_hotkey = False
+        self._listening_for_key = False
+        self._listening_for_fivem_key = False
+        self._bound_key_obj = None
+        self._bound_key_char = "f"
+        self.bound_key_display = tk.StringVar(value="F")
+        self._picking = False
 
-        # simple click-macro recorder
         self.recorded_events = []
         self._recording = False
-        self._record_start = None
         self._record_listener = None
-
         self._build_ui()
         self._start_global_listener()
 
-    # -----------------------------------------------------------------
-    # Icon
-    # -----------------------------------------------------------------
     def _set_icon(self):
         try:
             if os.name == "nt" and os.path.exists(ICON_ICO):
@@ -258,479 +221,303 @@ class AutoClicker(tk.Tk):
         except Exception:
             pass
 
-    # -----------------------------------------------------------------
-    # UI helpers
-    # -----------------------------------------------------------------
-    def _heading(self, parent, text):
-        tk.Label(parent, text=text, bg=PANEL_BG, fg=BLUE,
-                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12, pady=(10, 6))
+    def _card(self, parent):
+        return tk.Frame(parent, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
 
-    def _spin(self, parent, var, width=5):
-        return tk.Spinbox(
-            parent, from_=0, to=999, textvariable=var, width=width,
-            justify="center", relief="solid", bd=1,
-            bg=PANEL_BG, fg=TEXT, buttonbackground=PANEL_BG
-        )
+    def _label(self, parent, text, size=9, color=TEXT, bold=False):
+        return tk.Label(parent, text=text, bg=CARD, fg=color,
+                        font=("Segoe UI", size, "bold" if bold else "normal"))
 
-    # -----------------------------------------------------------------
-    # UI construction
-    # -----------------------------------------------------------------
     def _build_ui(self):
-        pad = {"padx": 12, "pady": 6}
+        root = tk.Frame(self, bg=BG)
+        root.pack(fill="both", expand=True, padx=16, pady=14)
 
-        # ---- Click interval -------------------------------------------------
-        interval = RoundPanel(self)
-        interval.pack(fill="x", **pad)
-        self._heading(interval, "Click interval")
+        header = tk.Frame(root, bg=BG)
+        header.pack(fill="x", pady=(0, 14))
+        tk.Label(header, text="Jrz Auto Harvest", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 18, "bold")).pack(side="left")
+        self.status_dot = tk.Label(header, text="●", bg=BG, fg=MUTED,
+                                   font=("Segoe UI", 12))
+        self.status_dot.pack(side="right", padx=(0, 5))
+        self.status_text = tk.Label(header, text="Stopped", bg=BG, fg=MUTED,
+                                    font=("Segoe UI", 9))
+        self.status_text.pack(side="right")
 
-        row = tk.Frame(interval, bg=PANEL_BG)
-        row.pack(fill="x", padx=12)
-        for var, label in [(self.hours, "hours"), (self.mins, "mins"),
-                            (self.secs, "secs"), (self.millis, "milliseconds")]:
-            self._spin(row, var).pack(side="left", padx=(0, 4))
-            tk.Label(row, text=label, bg=PANEL_BG, fg=TEXT).pack(side="left", padx=(0, 10))
+        action = self._card(root)
+        action.pack(fill="x", pady=(0, 10))
+        top = tk.Frame(action, bg=CARD)
+        top.pack(fill="x", padx=14, pady=(12, 6))
+        self._label(top, "ACTION", 8, MUTED, True).pack(side="left")
+        ttk.Style().configure("Dark.TCombobox", fieldbackground=CARD_2, background=CARD_2,
+                              foreground=TEXT)
+        ttk.Combobox(top, textvariable=self.action_type,
+                     values=["fivem", "mouse", "key"], state="readonly", width=14).pack(side="right")
+        self.action_detail = tk.Frame(action, bg=CARD)
+        self.action_detail.pack(fill="x", padx=14, pady=(0, 12))
 
-        offset_row = tk.Frame(interval, bg=PANEL_BG)
-        offset_row.pack(fill="x", padx=12, pady=(8, 12))
-        tk.Checkbutton(offset_row, text="Random offset", variable=self.random_offset,
-                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG,
-                        activebackground=PANEL_BG, highlightthickness=0).pack(side="left")
-        self._spin(offset_row, self.offset_ms, width=6).pack(side="left", padx=(8, 4))
-        tk.Label(offset_row, text="milliseconds", bg=PANEL_BG, fg=TEXT).pack(side="left")
+        timing = self._card(root)
+        timing.pack(fill="x", pady=(0, 10))
+        row = tk.Frame(timing, bg=CARD)
+        row.pack(fill="x", padx=14, pady=12)
+        self._label(row, "INTERVAL", 8, MUTED, True).pack(side="left")
+        for var, unit in ((self.millis, "ms"), (self.secs, "sec")):
+            tk.Spinbox(row, from_=0, to=9999, textvariable=var, width=5,
+                       bg=CARD_2, fg=TEXT, insertbackground=TEXT, relief="flat", buttonbackground=CARD_2,
+                       justify="center").pack(side="right", padx=(4, 2))
+            self._label(row, unit, 8, MUTED).pack(side="right")
 
-        # ---- two-column area: Click options | Click repeat -------------------------
-        cols = tk.Frame(self, bg=BG)
-        cols.pack(fill="x", padx=12, pady=6)
-        cols.columnconfigure(0, weight=1)
-        cols.columnconfigure(1, weight=1)
+        repeat = self._card(root)
+        repeat.pack(fill="x", pady=(0, 10))
+        rr = tk.Frame(repeat, bg=CARD)
+        rr.pack(fill="x", padx=14, pady=12)
+        self._label(rr, "REPEAT", 8, MUTED, True).pack(side="left")
+        tk.Radiobutton(rr, text="Until stopped", variable=self.repeat_mode, value="until_stopped",
+                       bg=CARD, fg=TEXT, selectcolor=CARD_2, activebackground=CARD,
+                       activeforeground=TEXT, highlightthickness=0).pack(side="right")
+        tk.Radiobutton(rr, text="Count", variable=self.repeat_mode, value="times",
+                       bg=CARD, fg=TEXT, selectcolor=CARD_2, activebackground=CARD,
+                       activeforeground=TEXT, highlightthickness=0).pack(side="right", padx=(0, 8))
+        tk.Spinbox(rr, from_=1, to=99999, textvariable=self.repeat_times, width=5,
+                   bg=CARD_2, fg=TEXT, insertbackground=TEXT, relief="flat").pack(side="right", padx=(4, 4))
 
-        options = RoundPanel(cols)
-        options.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        self._heading(options, "Click options")
+        buttons = tk.Frame(root, bg=BG)
+        buttons.pack(fill="x", pady=(2, 0))
+        self.start_btn = tk.Button(buttons, text="START  •  F6", command=self.start,
+                                   bg=ACCENT, fg="white", activebackground=ACCENT_HOVER,
+                                   activeforeground="white", relief="flat", bd=0,
+                                   font=("Segoe UI", 10, "bold"), height=2, cursor="hand2")
+        self.start_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.stop_btn = tk.Button(buttons, text="STOP", command=self.stop,
+                                  bg=CARD_2, fg=MUTED, activebackground=BORDER,
+                                  activeforeground=TEXT, relief="flat", bd=0,
+                                  font=("Segoe UI", 10, "bold"), height=2, state="disabled")
+        self.stop_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
-        toggle_row = tk.Frame(options, bg=PANEL_BG)
-        toggle_row.pack(fill="x", padx=12, pady=(0, 6))
-        tk.Radiobutton(toggle_row, text="Mouse click", variable=self.action_type, value="mouse",
-                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG, activebackground=PANEL_BG,
-                        highlightthickness=0, command=self._refresh_action_widgets).pack(anchor="w")
-        tk.Radiobutton(toggle_row, text="Key press", variable=self.action_type, value="key",
-                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG, activebackground=PANEL_BG,
-                        highlightthickness=0, command=self._refresh_action_widgets).pack(anchor="w")
-        tk.Radiobutton(toggle_row, text="FiveM interaction", variable=self.action_type, value="fivem",
-                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG, activebackground=PANEL_BG,
-                        highlightthickness=0, command=self._refresh_action_widgets).pack(anchor="w")
-
-        self.action_detail = tk.Frame(options, bg=PANEL_BG)
-        self.action_detail.pack(fill="x", padx=12, pady=(2, 12))
-
-        repeat = RoundPanel(cols)
-        repeat.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        self._heading(repeat, "Click repeat")
-
-        rtop = tk.Frame(repeat, bg=PANEL_BG)
-        rtop.pack(anchor="w", padx=12)
-        tk.Radiobutton(rtop, text="Repeat", variable=self.repeat_mode, value="times",
-                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG,
-                        activebackground=PANEL_BG, highlightthickness=0).pack(side="left")
-        tk.Spinbox(rtop, from_=1, to=99999, textvariable=self.repeat_times, width=5,
-                    justify="center", relief="solid", bd=1,
-                    bg=PANEL_BG, fg=TEXT, buttonbackground=PANEL_BG).pack(side="left", padx=4)
-        tk.Label(rtop, text="times", bg=PANEL_BG, fg=TEXT).pack(side="left")
-
-        tk.Radiobutton(repeat, text="Repeat until stopped", variable=self.repeat_mode,
-                        value="until_stopped", bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG,
-                        activebackground=PANEL_BG, highlightthickness=0
-                        ).pack(anchor="w", padx=12, pady=(4, 12))
-
-        # ---- Cursor position -------------------------------------------------
-        cursor = RoundPanel(self)
-        cursor.pack(fill="x", **pad)
-        self._heading(cursor, "Cursor position")
-
-        crow = tk.Frame(cursor, bg=PANEL_BG)
-        crow.pack(fill="x", padx=12, pady=(0, 12))
-        tk.Radiobutton(crow, text="Current location", variable=self.cursor_mode, value="current",
-                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG,
-                        activebackground=PANEL_BG, highlightthickness=0).pack(side="left")
-        tk.Radiobutton(crow, text="", variable=self.cursor_mode, value="pick",
-                        bg=PANEL_BG, fg=TEXT, selectcolor=PANEL_BG,
-                        activebackground=PANEL_BG, highlightthickness=0).pack(side="left", padx=(14, 0))
-        self.pick_btn = tk.Button(crow, text="Pick location", command=self._pick_location,
-                                    bg=PANEL_BG, fg=TEXT, relief="solid", bd=1)
-        self.pick_btn.pack(side="left")
-        tk.Label(crow, text="X", bg=PANEL_BG, fg=TEXT).pack(side="left", padx=(12, 2))
-        tk.Entry(crow, textvariable=self.pick_x, width=5, relief="solid", bd=1,
-                  state="readonly", justify="center").pack(side="left")
-        tk.Label(crow, text="Y", bg=PANEL_BG, fg=TEXT).pack(side="left", padx=(8, 2))
-        tk.Entry(crow, textvariable=self.pick_y, width=5, relief="solid", bd=1,
-                  state="readonly", justify="center").pack(side="left")
-
-        # ---- Buttons -------------------------------------------------
-        btns = tk.Frame(self, bg=BG)
-        btns.pack(fill="x", padx=12, pady=(4, 4))
-        btns.columnconfigure(0, weight=1)
-        btns.columnconfigure(1, weight=1)
-
-        self.start_btn = tk.Button(
-            btns, text=f"Start ({self.hotkey_display.get()})", command=self.start,
-            bg=PANEL_BG, fg=BLUE, relief="solid", bd=1, height=2, activebackground="#eaf1fd"
-        )
-        self.start_btn.grid(row=0, column=0, sticky="nsew", padx=(0, 4), pady=(0, 4))
-
-        self.stop_btn = tk.Button(
-            btns, text=f"Stop ({self.hotkey_display.get()})", command=self.stop,
-            bg=PANEL_BG, fg=MUTED, relief="solid", bd=1, height=2, state="disabled"
-        )
-        self.stop_btn.grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=(0, 4))
-
-        tk.Button(btns, text="Hotkey setting", command=self._open_hotkey_dialog,
-                   bg=PANEL_BG, fg=TEXT, relief="solid", bd=1, height=2
-                   ).grid(row=1, column=0, sticky="nsew", padx=(0, 4))
-
-        tk.Button(btns, text="Record && Playback", command=self._open_record_dialog,
-                   bg=PANEL_BG, fg=TEXT, relief="solid", bd=1, height=2
-                   ).grid(row=1, column=1, sticky="nsew", padx=(4, 0))
-
-        # ---- Status -------------------------------------------------
-        status = tk.Frame(self, bg=BG)
-        status.pack(fill="both", expand=True, padx=12, pady=(8, 12))
-        self.status_var = tk.StringVar(value="Stopped")
-        tk.Label(status, textvariable=self.status_var, bg=BG, fg=MUTED,
-                 font=("Segoe UI", 9)).pack(anchor="w")
+        lower = tk.Frame(root, bg=BG)
+        lower.pack(fill="x", pady=(8, 0))
+        tk.Button(lower, text="Hotkey", command=self._open_hotkey_dialog,
+                  bg=BG, fg=MUTED, activebackground=BG, activeforeground=TEXT,
+                  relief="flat", bd=0).pack(side="left")
+        tk.Button(lower, text="Record / Playback", command=self._open_record_dialog,
+                  bg=BG, fg=MUTED, activebackground=BG, activeforeground=TEXT,
+                  relief="flat", bd=0).pack(side="right")
 
         self._refresh_action_widgets()
 
-    # -----------------------------------------------------------------
-    # Mouse click vs. key press detail widgets
-    # -----------------------------------------------------------------
     def _refresh_action_widgets(self):
         for w in self.action_detail.winfo_children():
             w.destroy()
 
-        if self.action_type.get() == "mouse":
-            row1 = tk.Frame(self.action_detail, bg=PANEL_BG)
-            row1.pack(fill="x", pady=2)
-            tk.Label(row1, text="Mouse button:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
-            ttk.Combobox(row1, textvariable=self.mouse_button, values=list(MOUSE_BUTTONS),
-                         state="readonly", width=9).pack(side="left")
-
-            row2 = tk.Frame(self.action_detail, bg=PANEL_BG)
-            row2.pack(fill="x", pady=2)
-            tk.Label(row2, text="Click type:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
+        if self.action_type.get() == "fivem":
+            row = tk.Frame(self.action_detail, bg=CARD)
+            row.pack(fill="x")
+            self._label(row, "Interaction key", 9).pack(side="left")
+            tk.Button(row, textvariable=self.fivem_key_display, command=self._listen_for_fivem_key,
+                      bg=CARD_2, fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
+                      relief="flat", bd=0, width=12, cursor="hand2",
+                      font=("Segoe UI", 9, "bold")).pack(side="right")
+            row2 = tk.Frame(self.action_detail, bg=CARD)
+            row2.pack(fill="x", pady=(9, 0))
+            self._label(row2, "Hold", 9).pack(side="left")
+            tk.Spinbox(row2, from_=30, to=500, textvariable=self.fivem_hold_ms, width=6,
+                       bg=CARD_2, fg=TEXT, insertbackground=TEXT, relief="flat",
+                       buttonbackground=CARD_2).pack(side="right")
+            self._label(row2, "milliseconds", 8, MUTED).pack(side="right", padx=(0, 7))
+            tk.Checkbutton(row2, text="No pause between E presses", variable=self.no_pause,
+                           bg=CARD, fg=GREEN, selectcolor=CARD_2, activebackground=CARD,
+                           activeforeground=GREEN, highlightthickness=0).pack(side="left", padx=(12, 0))
+            self._label(self.action_detail, "Click the key box and press any keyboard key. E is the default.",
+                        8, MUTED).pack(anchor="w", pady=(7, 0))
+        elif self.action_type.get() == "mouse":
+            row = tk.Frame(self.action_detail, bg=CARD); row.pack(fill="x")
+            self._label(row, "Mouse button", 9).pack(side="left")
+            ttk.Combobox(row, textvariable=self.mouse_button, values=list(MOUSE_BUTTONS),
+                         state="readonly", width=9).pack(side="right")
+            row2 = tk.Frame(self.action_detail, bg=CARD); row2.pack(fill="x", pady=(7, 0))
+            self._label(row2, "Click type", 9).pack(side="left")
             ttk.Combobox(row2, textvariable=self.click_type, values=["Single", "Double"],
-                         state="readonly", width=9).pack(side="left")
-        elif self.action_type.get() == "key":
-            row = tk.Frame(self.action_detail, bg=PANEL_BG)
-            row.pack(fill="x", pady=2)
-            tk.Label(row, text="Key to press:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
-            self.key_btn = tk.Button(row, textvariable=self.bound_key_display,
-                                       command=self._listen_for_key, width=9,
-                                       relief="solid", bd=1, bg=PANEL_BG, fg=TEXT)
-            self.key_btn.pack(side="left")
-            tk.Label(self.action_detail, text="Click, then press any key to bind it",
-                     bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+                         state="readonly", width=9).pack(side="right")
         else:
-            row = tk.Frame(self.action_detail, bg=PANEL_BG)
-            row.pack(fill="x", pady=2)
-            tk.Label(row, text="Interaction key:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
-            ttk.Combobox(row, textvariable=self.fivem_key,
-                         values=["E", "G", "F", "H", "Y", "X", "ENTER", "SPACE"],
-                         state="readonly", width=9).pack(side="left")
-            hold_row = tk.Frame(self.action_detail, bg=PANEL_BG)
-            hold_row.pack(fill="x", pady=(4, 0))
-            tk.Label(hold_row, text="Hold E for:", bg=PANEL_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
-            tk.Spinbox(hold_row, from_=30, to=1000, textvariable=self.fivem_hold_ms, width=7,
-                       justify="center", relief="solid", bd=1, bg=PANEL_BG, fg=TEXT,
-                       buttonbackground=PANEL_BG).pack(side="left")
-            tk.Label(hold_row, text="ms", bg=PANEL_BG, fg=TEXT).pack(side="left", padx=(4, 0))
-            tk.Label(self.action_detail, text="FiveM gets a real key-down, short hold, then key-up.",
-                     bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+            row = tk.Frame(self.action_detail, bg=CARD); row.pack(fill="x")
+            self._label(row, "Key to press", 9).pack(side="left")
+            tk.Button(row, textvariable=self.bound_key_display, command=self._listen_for_key,
+                      bg=CARD_2, fg=TEXT, activebackground=BORDER, relief="flat", width=9).pack(side="right")
+
+    def _listen_for_fivem_key(self):
+        self._listening_for_fivem_key = True
+        self.fivem_key_display.set("Press any key…")
 
     def _listen_for_key(self):
-        self.bound_key_display.set("Press a key…")
+        self.bound_key_display.set("Press key")
         self._listening_for_key = True
 
     def _on_capture_key(self, key):
+        if self._listening_for_fivem_key:
+            self._listening_for_fivem_key = False
+            try:
+                if getattr(key, "char", None):
+                    self.fivem_key_char = key.char
+                    self.fivem_key_obj = None
+                    self.fivem_key.set(key.char.upper())
+                    self.fivem_key_display.set(key.char.upper())
+                else:
+                    self.fivem_key_obj = key
+                    self.fivem_key_char = ""
+                    label = _key_label(key)
+                    self.fivem_key.set(label)
+                    self.fivem_key_display.set(label)
+            except Exception:
+                self.fivem_key_obj = key
+                label = _key_label(key)
+                self.fivem_key.set(label)
+                self.fivem_key_display.set(label)
+            return
+
         if not self._listening_for_key:
             return
         self._listening_for_key = False
         try:
-            char = key.char
-            self._bound_key_char = char
+            self._bound_key_char = key.char
             self._bound_key_obj = None
-            self.bound_key_display.set(char.upper() if char else str(key))
+            self.bound_key_display.set(key.char.upper())
         except AttributeError:
             self._bound_key_obj = key
             self.bound_key_display.set(_key_label(key))
 
-    # -----------------------------------------------------------------
-    # Cursor position picking
-    # -----------------------------------------------------------------
     def _pick_location(self):
         if self._picking:
             return
         self._picking = True
-        self.pick_btn.config(text="Click anywhere…", state="disabled")
-
         def on_click(x, y, button, pressed):
             if pressed:
-                self.after(0, self._finish_pick, x, y)
-                return False  # stop listener after first click
-
+                self.after(0, lambda: (self.pick_x.set(x), self.pick_y.set(y)))
+                return False
         listener = mouse.Listener(on_click=on_click)
         listener.daemon = True
         listener.start()
 
-    def _finish_pick(self, x, y):
-        self.pick_x.set(x)
-        self.pick_y.set(y)
-        self.cursor_mode.set("pick")
-        self.pick_btn.config(text="Pick location", state="normal")
-        self._picking = False
-
-    # -----------------------------------------------------------------
-    # Hotkey rebinding
-    # -----------------------------------------------------------------
     def _open_hotkey_dialog(self):
-        dlg = tk.Toplevel(self)
-        dlg.title("Hotkey setting")
-        dlg.configure(bg=PANEL_BG)
-        dlg.resizable(False, False)
-        dlg.transient(self)
-        dlg.geometry("300x140")
-
-        tk.Label(dlg, text="Start / Stop hotkey", bg=PANEL_BG, fg=TEXT,
-                  font=("Segoe UI", 10, "bold")).pack(pady=(16, 8))
-
-        key_display = tk.StringVar(value=self.hotkey_display.get())
-        key_lbl = tk.Label(dlg, textvariable=key_display, bg=PANEL_BG, fg=BLUE,
-                             font=("Segoe UI", 14, "bold"))
-        key_lbl.pack(pady=4)
-
-        hint = tk.StringVar(value='Click "Rebind", then press any key.')
-        tk.Label(dlg, textvariable=hint, bg=PANEL_BG, fg=MUTED,
-                  font=("Segoe UI", 8)).pack(pady=(0, 8))
-
-        self._listening_for_hotkey = False
-        new_key_holder = {"key": self.hotkey}
-
-        def start_rebind():
-            self._listening_for_hotkey = True
-            key_display.set("Press a key…")
-            hint.set("Waiting for a key press…")
-
-        def apply_and_close():
-            self.hotkey = new_key_holder["key"]
-            self.hotkey_display.set(key_display.get())
-            self.start_btn.config(text=f"Start ({self.hotkey_display.get()})")
-            self.stop_btn.config(text=f"Stop ({self.hotkey_display.get()})")
-            dlg._local_listener.stop()
-            dlg.destroy()
-
+        dlg = tk.Toplevel(self); dlg.title("Hotkey"); dlg.configure(bg=CARD); dlg.resizable(False, False)
+        dlg.geometry("300x150"); dlg.transient(self)
+        tk.Label(dlg, text="Start / Stop hotkey", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 11, "bold")).pack(pady=(16, 6))
+        display = tk.StringVar(value=self.hotkey_display.get())
+        tk.Label(dlg, textvariable=display, bg=CARD, fg=ACCENT,
+                 font=("Segoe UI", 15, "bold")).pack()
+        waiting = {"value": False}
+        holder = {"key": self.hotkey}
+        def rebind():
+            waiting["value"] = True; display.set("Press a key…")
         def on_press(key):
-            if not self._listening_for_hotkey:
-                return
-            self._listening_for_hotkey = False
-            new_key_holder["key"] = key
-            self.after(0, lambda: (key_display.set(_key_label(key)),
-                                    hint.set('Click "Rebind" to change again.')))
+            if waiting["value"]:
+                waiting["value"] = False; holder["key"] = key
+                self.after(0, lambda: display.set(_key_label(key)))
+        listener = keyboard.Listener(on_press=on_press); listener.daemon = True; listener.start()
+        def save():
+            self.hotkey = holder["key"]; self.hotkey_display.set(display.get())
+            self.start_btn.config(text=f"START  •  {self.hotkey_display.get()}")
+            listener.stop(); dlg.destroy()
+        tk.Button(dlg, text="Rebind", command=rebind, bg=CARD_2, fg=TEXT,
+                  relief="flat", width=10).pack(side="left", padx=(55, 5), pady=14)
+        tk.Button(dlg, text="Save", command=save, bg=ACCENT, fg="white",
+                  relief="flat", width=10).pack(side="left", padx=5, pady=14)
+        dlg.protocol("WM_DELETE_WINDOW", lambda: (listener.stop(), dlg.destroy()))
 
-        dlg._local_listener = keyboard.Listener(on_press=on_press)
-        dlg._local_listener.daemon = True
-        dlg._local_listener.start()
-
-        def on_close():
-            dlg._local_listener.stop()
-            dlg.destroy()
-        dlg.protocol("WM_DELETE_WINDOW", on_close)
-
-        btn_row = tk.Frame(dlg, bg=PANEL_BG)
-        btn_row.pack(pady=(4, 12))
-        tk.Button(btn_row, text="Rebind", command=start_rebind,
-                   bg=PANEL_BG, fg=TEXT, relief="solid", bd=1).pack(side="left", padx=6)
-        tk.Button(btn_row, text="Save", command=apply_and_close,
-                   bg=BLUE, fg="#ffffff", relief="flat", bd=0).pack(side="left", padx=6)
-
-    # -----------------------------------------------------------------
-    # Record & Playback (simple click macro)
-    # -----------------------------------------------------------------
     def _open_record_dialog(self):
-        dlg = tk.Toplevel(self)
-        dlg.title("Record & Playback")
-        dlg.configure(bg=PANEL_BG)
-        dlg.resizable(False, False)
-        dlg.transient(self)
-        dlg.geometry("320x220")
-
-        tk.Label(dlg, text="Record & Playback", bg=PANEL_BG, fg=TEXT,
-                  font=("Segoe UI", 10, "bold")).pack(pady=(16, 4))
-        tk.Label(dlg, text="Records your mouse clicks (position + timing)\nso you can play them back.",
-                  bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 8), justify="center").pack(pady=(0, 10))
-
-        status_var = tk.StringVar(value=f"{len(self.recorded_events)} events recorded")
-        tk.Label(dlg, textvariable=status_var, bg=PANEL_BG, fg=BLUE,
-                  font=("Segoe UI", 9, "bold")).pack(pady=(0, 10))
-
-        def refresh_status():
-            status_var.set(f"{len(self.recorded_events)} events recorded")
-
+        dlg = tk.Toplevel(self); dlg.title("Record / Playback"); dlg.configure(bg=CARD)
+        dlg.resizable(False, False); dlg.geometry("330x210"); dlg.transient(self)
+        tk.Label(dlg, text="Record / Playback", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 11, "bold")).pack(pady=(16, 4))
+        status = tk.StringVar(value=f"{len(self.recorded_events)} events recorded")
+        tk.Label(dlg, textvariable=status, bg=CARD, fg=MUTED).pack(pady=8)
         def toggle_record():
             if not self._recording:
-                self.recorded_events = []
-                self._recording = True
-                self._record_start = time.time()
-                record_btn.config(text="Stop recording", bg="#e8484d", fg="#ffffff")
-                status_var.set("Recording… click anywhere")
-
+                self.recorded_events = []; self._recording = True; start = time.time()
                 def on_click(x, y, button, pressed):
                     if pressed and self._recording:
-                        t = time.time() - self._record_start
-                        self.recorded_events.append((t, x, y, button))
-
-                self._record_listener = mouse.Listener(on_click=on_click)
-                self._record_listener.daemon = True
-                self._record_listener.start()
+                        self.recorded_events.append((time.time() - start, x, y, button))
+                self._record_listener = mouse.Listener(on_click=on_click); self._record_listener.daemon = True
+                self._record_listener.start(); record_btn.config(text="Stop recording", bg=RED); status.set("Recording…")
             else:
                 self._recording = False
-                if self._record_listener:
-                    self._record_listener.stop()
-                record_btn.config(text="Start recording", bg=PANEL_BG, fg=TEXT)
-                refresh_status()
-
-        def play_back():
-            if not self.recorded_events or self._recording:
-                return
-            play_btn.config(state="disabled")
-            status_var.set("Playing back…")
-
+                if self._record_listener: self._record_listener.stop()
+                record_btn.config(text="Start recording", bg=CARD_2); status.set(f"{len(self.recorded_events)} events recorded")
+        def play():
+            if not self.recorded_events or self._recording: return
             def run():
-                last_t = 0.0
+                last = 0
                 for t, x, y, button in self.recorded_events:
-                    time.sleep(max(0.0, t - last_t))
-                    last_t = t
-                    if os.name == "nt":
-                        user32.SetCursorPos(x, y)
-                    else:
-                        mouse_ctl.position = (x, y)
-                    name = {mouse.Button.left: "Left", mouse.Button.right: "Right", mouse.Button.middle: "Middle"}.get(button, "Left")
-                    _native_mouse_click(name, 1)
-                self.after(0, lambda: (play_btn.config(state="normal"), refresh_status()))
-
+                    time.sleep(max(0, t-last)); last = t
+                    if os.name == "nt": user32.SetCursorPos(x, y)
+                    name = {mouse.Button.left:"Left", mouse.Button.right:"Right", mouse.Button.middle:"Middle"}.get(button, "Left")
+                    _native_mouse_click(name)
+                self.after(0, lambda: status.set(f"{len(self.recorded_events)} events recorded"))
             threading.Thread(target=run, daemon=True).start()
+        frame = tk.Frame(dlg, bg=CARD); frame.pack(pady=10)
+        record_btn = tk.Button(frame, text="Start recording", command=toggle_record, bg=CARD_2, fg=TEXT,
+                                relief="flat", width=15); record_btn.pack(side="left", padx=5)
+        tk.Button(frame, text="Play back", command=play, bg=ACCENT, fg="white",
+                  relief="flat", width=12).pack(side="left", padx=5)
+        dlg.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, "_recording", False),
+                                                   self._record_listener.stop() if self._record_listener else None,
+                                                   dlg.destroy()))
 
-        btn_row = tk.Frame(dlg, bg=PANEL_BG)
-        btn_row.pack(pady=6)
-        record_btn = tk.Button(btn_row, text="Start recording", command=toggle_record,
-                                 bg=PANEL_BG, fg=TEXT, relief="solid", bd=1, width=14)
-        record_btn.pack(side="left", padx=6)
-        play_btn = tk.Button(btn_row, text="Play back", command=play_back,
-                               bg=BLUE, fg="#ffffff", relief="flat", bd=0, width=12)
-        play_btn.pack(side="left", padx=6)
-
-        def on_close():
-            self._recording = False
-            if self._record_listener:
-                self._record_listener.stop()
-            dlg.destroy()
-        dlg.protocol("WM_DELETE_WINDOW", on_close)
-
-    # -----------------------------------------------------------------
-    # Global hotkey listener (works even when window unfocused)
-    # -----------------------------------------------------------------
     def _start_global_listener(self):
         def on_press(key):
-            if self._listening_for_key:
-                self.after(0, self._on_capture_key, key)
-                return
-            if self._listening_for_hotkey:
-                return  # handled by the hotkey-setting dialog's own listener
-            if key == self.hotkey:
+            if self._listening_for_key or self._listening_for_fivem_key:
+                self.after(0, self._on_capture_key, key); return
+            if not self._listening_for_hotkey and key == self.hotkey:
                 self.after(0, self.toggle)
-
         self._hotkey_listener = keyboard.Listener(on_press=on_press)
-        self._hotkey_listener.daemon = True
-        self._hotkey_listener.start()
+        self._hotkey_listener.daemon = True; self._hotkey_listener.start()
 
     def toggle(self):
-        if self.running:
-            self.stop()
-        else:
-            self.start()
+        self.stop() if self.running else self.start()
 
-    # -----------------------------------------------------------------
-    # Start / stop
-    # -----------------------------------------------------------------
     def start(self):
-        if self.running:
+        if self.running: return
+        interval = self.hours.get()*3600 + self.mins.get()*60 + self.secs.get() + self.millis.get()/1000
+        if self.action_type.get() == "fivem" and self.no_pause.get():
+            interval = 0
+        elif interval <= 0:
+            self.status_text.config(text="Set an interval")
             return
-        interval = (
-            self.hours.get() * 3600
-            + self.mins.get() * 60
-            + self.secs.get()
-            + self.millis.get() / 1000.0
-        )
-        if interval <= 0:
-            self.status_var.set("Set an interval greater than 0 first.")
-            return
-
-        self.running = True
-        self.stop_event.clear()
-        self.start_btn.config(state="disabled")
-        self.stop_btn.config(state="normal", fg=TEXT)
-        self.status_var.set("Running…")
-
-        self.worker = threading.Thread(target=self._run_loop, args=(interval,), daemon=True)
-        self.worker.start()
+        self.running = True; self.stop_event.clear()
+        self.start_btn.config(state="disabled"); self.stop_btn.config(state="normal", fg=TEXT)
+        self.status_text.config(text="Running", fg=GREEN); self.status_dot.config(fg=GREEN)
+        self.worker = threading.Thread(target=self._run_loop, args=(interval,), daemon=True); self.worker.start()
 
     def stop(self):
-        if not self.running:
-            return
-        self.running = False
-        self.stop_event.set()
-        self.start_btn.config(state="normal")
-        self.stop_btn.config(state="disabled", fg=MUTED)
-        self.status_var.set("Stopped")
+        if not self.running: return
+        self.running = False; self.stop_event.set()
+        self.start_btn.config(state="normal"); self.stop_btn.config(state="disabled", fg=MUTED)
+        self.status_text.config(text="Stopped", fg=MUTED); self.status_dot.config(fg=MUTED)
 
     def _run_loop(self, interval):
-        count = 0
-        limit = None
-        if self.repeat_mode.get() == "times":
-            limit = self.repeat_times.get()
-
+        count = 0; limit = self.repeat_times.get() if self.repeat_mode.get() == "times" else None
         while not self.stop_event.is_set():
-            self._fire_action()
-            count += 1
-            self.after(0, lambda c=count: self.status_var.set(f"Running… ({c} triggered)"))
-
+            self._fire_action(); count += 1
             if limit is not None and count >= limit:
-                self.after(0, self.stop)
-                break
-
-            wait = interval
-            if self.random_offset.get():
-                import random
-                wait += random.uniform(0, self.offset_ms.get() / 1000.0)
-            self.stop_event.wait(wait)
+                self.after(0, self.stop); break
+            if interval > 0:
+                wait = interval
+                if self.random_offset.get():
+                    import random
+                    wait += random.uniform(0, self.offset_ms.get()/1000)
+                self.stop_event.wait(wait)
 
     def _fire_action(self):
         mode = self.action_type.get()
-        if mode == "mouse":
+        if mode == "fivem":
+            key = self.fivem_key_obj if self.fivem_key_obj is not None else self.fivem_key_char
+            _key_down_up(key, self.fivem_hold_ms.get())
+        elif mode == "mouse":
             if self.cursor_mode.get() == "pick":
-                if os.name == "nt":
-                    user32.SetCursorPos(self.pick_x.get(), self.pick_y.get())
-                else:
-                    mouse_ctl.position = (self.pick_x.get(), self.pick_y.get())
-            btn_name = self.mouse_button.get()
-            clicks = 2 if self.click_type.get() == "Double" else 1
-            _native_mouse_click(btn_name, clicks)
-        elif mode == "fivem":
-            # GTA/FiveM world interaction points commonly use E rather than
-            # a Windows mouse click. This mode intentionally sends a keyboard
-            # event so the interaction is handled by the game/resource.
-            _native_key_press(self.fivem_key.get(), self.fivem_hold_ms.get())
+                user32.SetCursorPos(self.pick_x.get(), self.pick_y.get()) if os.name == "nt" else setattr(mouse_ctl, "position", (self.pick_x.get(), self.pick_y.get()))
+            _native_mouse_click(self.mouse_button.get(), 2 if self.click_type.get() == "Double" else 1)
         else:
             key = self._bound_key_obj if self._bound_key_obj is not None else self._bound_key_char
-            _native_key_press(key)
+            _key_down_up(key, 60)
 
 
 if __name__ == "__main__":

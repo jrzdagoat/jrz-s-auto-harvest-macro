@@ -1,22 +1,22 @@
-# Jrz's Auto Havest Drug Macro
+# Jrz Auto Harvest
 
-FiveM/GTA V-friendly desktop macro for repeating mouse clicks or keyboard interactions.
+Simple FiveM/GTA V-focused desktop macro.
 
-## FiveM world interaction mode
+### FiveM mode
+- Default interaction key: **E**
+- Default hold: **60 ms**
+- **No pause between E presses** is enabled by default.
+- The macro releases E and immediately starts the next E press. This removes the artificial interval/pause from the previous version.
 
-If the drug pickup point is a GTA/FiveM world interaction rather than a UI button, use **FiveM interaction** in Click options. It sends a keyboard interaction event (default **E**) instead of a Windows mouse click. You can choose another common interaction key from the dropdown.
+If the server/resource itself has a collection cooldown, the macro cannot remove that server-side delay.
 
-This is useful for servers/resources where the interaction is triggered by a key such as E. It does not bypass server-side anti-cheat or resource-specific interaction systems.
-
-## Run
-
+### Run
 ```bash
 pip install -r requirements.txt
 python auto_clicker.py
 ```
 
-## Build
-
+### Build
 ```bash
 pyinstaller --onefile --windowed --name "JrzAutoHavestDrugMacro" --icon assets/icon.ico --add-data "assets;assets" auto_clicker.py
 ```
